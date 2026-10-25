@@ -1,0 +1,129 @@
+# Загрузка статей агентом
+
+Сервис принимает готовые статьи через HTTP API и MCP. Оба способа используют общий импорт. Доступ предоставляется через OAuth для ChatGPT или отдельный отзываемый bearer-токен для других агентов с правом `articles:import`. Агент может добавить материал и получить квитанцию о собственном импорте. Он не получает доступ к словарю, настройкам, чужим квитанциям и удалению статей.
+
+## Токен и адрес сервиса
+
+Открыть **Настройки → Доступ агента → Создать токен на 90 дней**. Скопировать показанный токен в окружение своего агента. На сервере хранится только SHA-256 токена; повторно получить исходный токен нельзя. Кнопка «Отозвать» немедленно прекращает доступ по HTTP и MCP. Для новой интеграции можно выпустить отдельный токен.
+
+Далее `PAPERWORD_URL` — адрес веб-сервиса, например `https://papers.example.com`, а `PAPERWORD_TOKEN` — выданный токен. В локальном окружении допустим `http://127.0.0.1:3001`. Удалённому агенту понадобится адрес VPS, доступный из его сети; localhost обозначает компьютер самого агента.
+
+## HTTP: загрузка готового файла
+
+```sh
+curl --fail-with-body "$PAPERWORD_URL/api/agent/articles/file" \
+  -H "Authorization: Bearer $PAPERWORD_TOKEN" \
+  -F 'external_id=arxiv:2606.12821v2:black' \
+  -F 'source_url=https://arxiv.org/abs/2606.12821' \
+  -F 'tags=["Geospatial AI","Agents"]' \
+  -F 'file=@geonatureagent_benchmark_black.html'
+```
+
+Поддерживаются HTML, PDF, TXT и Markdown до 15 МБ. Поля: обязательные `external_id` и `file`; необязательные `title`, `source_url` и `tags` (JSON-массив строк). Для файлов с иллюстрациями это предпочтительный способ: исходный файл сохраняется, агенту не нужно передавать мегабайты HTML в контекст модели. Загруженный HTML разбирается как данные, его скрипты не исполняются.
+
+Пример PowerShell без зависимости от curl:
+
+```powershell
+$agentHeaders = @{ Authorization = "Bearer $env:PAPERWORD_TOKEN" }
+$uploadForm = @{
+  external_id = 'arxiv:2606.12821v2:black'
+  file = Get-Item -LiteralPath './geonatureagent_benchmark_black.html'
+}
+Invoke-RestMethod -Method Post -Uri "$env:PAPERWORD_URL/api/agent/articles/file" -Headers $agentHeaders -Form $uploadForm
+```
+
+## HTTP: структурированная статья, HTML или ссылка
+
+`POST /api/agent/articles`, заголовки `Authorization: Bearer …` и `Content-Type: application/json`. Предел JSON-запроса — 2 МБ.
+
+```json
+{
+  "external_id": "my-paper:version-1",
+  "title": "My prepared article",
+  "source_url": "https://example.com/paper",
+  "tags": ["Research"],
+  "content": {
+    "type": "blocks",
+    "blocks": [
+      { "kind": "heading", "text": "Abstract", "ru": "Аннотация" },
+      {
+        "kind": "paragraph",
+        "text": "The English paragraph.",
+        "ru": "Русский абзац."
+      }
+    ],
+    "dictionary": { "paragraph": "абзац" }
+  }
+}
+```
+
+Вместо `blocks` можно передать `content: {"type":"html","html":"<!doctype html>…"}` или `content: {"type":"url","url":"https://example.com/article.html"}`. Импорт ссылки получает материал с публичного HTTP/HTTPS-адреса; внутренние адреса запрещены. Он **не переводит** английский текст автоматически и не запускает ИИ. Если нужен готовый перевод, агент должен прислать его в HTML или `blocks`.
+
+Ответ содержит `id`, `title`, `source_url`, `tags`, количество `blocks` и `translated_blocks`, признак `duplicate` и `reader_path`, например `/#article/…`.
+
+`GET /api/agent/articles/{id}` возвращает квитанцию импорта, доступную текущему токену. `GET /api/agent/status` проверяет токен и доступность сервиса.
+
+## Безопасный повтор
+
+`external_id` — устойчивый идентификатор материала и версии, например DOI или arXiv ID с версией. Повтор неизменного запроса с тем же `external_id` возвращает ту же статью (`200`, `duplicate:true`). Первый импорт возвращает `201`. Если содержимое или метаданные изменились при прежнем `external_id`, сервис отвечает `409`; для новой версии нужен новый идентификатор. Содержимое существующей статьи не перезаписывается.
+
+Дополнительно одинаковый исходный файл или одинаковое структурированное содержимое не создаёт вторую статью даже при другом `external_id`. Ошибки валидации — `422`, отсутствующий/истёкший/отозванный токен — `401`. Агент должен сохранять `external_id` до первой попытки и повторять тот же запрос после сетевого сбоя. Удаление статьи владельцем удаляет её квитанции; после этого повторная загрузка создаёт новую статью.
+
+## Удалённый MCP
+
+Эндпоинт: `https://papers.example.com/mcp`. Транспорт: **stateless Streamable HTTP**, заголовок `Authorization: Bearer …` обязателен на каждом запросе. Поддерживаются клиенты с настройкой собственных заголовков или bearer-токена; Для ChatGPT поддержан OAuth с PKCE и динамической регистрацией; старый SSE-транспорт не используется. Для клиентов с ручным bearer-токеном прежний способ сохранён.
+
+Инструменты:
+
+- `import_chatgpt_file`: готовый файл из ChatGPT; объект `file` с обязательными `download_url`, `file_id`, необязательными `mime_type`, `file_name`, а также `external_id` и метаданные статьи. Ссылка должна быть HTTPS и вести на публичный адрес; до 15 МБ. Временная ссылка не сохраняется в БД и не передаётся в квитанцию.
+- `import_article`: те же поля, что у JSON HTTP API. Готовые блоки, HTML или публичная ссылка. Повтор безопасен по тем же правилам.
+- `get_imported_article`: квитанция по `id` для текущего агента.
+
+MCP не принимает путь к произвольному файлу на VPS. Для больших локальных файлов используйте HTTP multipart или локальный stdio-адаптер ниже.
+
+## Локальный MCP через stdio
+
+Собрать проект: `npm ci`, затем `npm run build`. Запустить адаптер с `node /absolute/path/English-Paper-Translation/build/mcp-stdio.mjs`. Он обращается к HTTP API сервиса и не открывает локальную БД. Токен и адрес передаются через окружение.
+
+Пример конфигурации клиента:
+
+```json
+{
+  "mcpServers": {
+    "paperword": {
+      "command": "node",
+      "args": ["C:/Projects/paperword/build/mcp-stdio.mjs"],
+      "env": {
+        "PAPERWORD_URL": "https://papers.example.com",
+        "PAPERWORD_TOKEN": "YOUR_AGENT_TOKEN",
+        "PAPERWORD_IMPORT_DIR": "C:/Articles"
+      }
+    }
+  }
+}
+```
+
+При заданном `PAPERWORD_IMPORT_DIR` появляется дополнительный инструмент `upload_article_file`: поля `file_path` (относительный или абсолютный), `external_id`, необязательные `title` и `source_url`. Папка должна находиться на машине, где запущен адаптер. Файлы вне неё, в том числе через симлинки, отклоняются. Без этой переменной локальное чтение файлов не предоставляется. Для агента в контейнере укажите путь внутри контейнера и смонтируйте нужную папку.
+
+## Инструкция для постоянной задачи
+
+После создания готового HTML:
+
+1. Вычислить устойчивый `external_id` из DOI/arXiv ID и версии.
+2. Вызвать `upload_article_file` или HTTP multipart с готовым файлом. Если агент располагает только текстом и переводом, вызвать `import_article` с блоками.
+3. Проверить успешный ответ: `id`, `translated_blocks`, `duplicate` и `reader_path`. Ошибку не выдавать за успешную загрузку.
+4. Вернуть владельцу ссылку `PAPERWORD_URL + reader_path`. При сетевой ошибке повторить тот же запрос; при `401` сообщить, что токен нужно обновить; при `409` не перезаписывать имеющийся материал.
+
+Для ChatGPT используйте инструкцию подключения ниже и [блок для существующей задачи](chatgpt-task-instructions.md). Ручной токен нужен агентам, которые работают через HTTP API или stdio; пароль владельца в задачу передавать не нужно.
+
+## ChatGPT: OAuth и готовые файлы
+
+Адрес MCP: `https://paperword.example.com/mcp`. Развернуть [HTTPS на VPS](vps-https.md), затем создать приложение в ChatGPT → Plugins с этим URL и OAuth. Сервер публикует Protected Resource Metadata в `/.well-known/oauth-protected-resource/mcp` и метаданные авторизации в `/.well-known/oauth-authorization-server`. DCR — `/register`, выдача кода — `/authorize`, обмен и refresh — `/token`, отзыв — `/revoke`. Callback разрешён только на документированные адреса chatgpt.com; локальные callback доступны лишь вне production.
+
+Войти в Paperword своим паролем и подтвердить ограниченный доступ на отдельной странице. Пароль в ChatGPT не передаётся. Требуется PKCE S256, точный resource `/mcp`, право `articles:import`; код живёт 5 минут, access token — час, refresh token — 90 дней с заменой при каждом использовании. Повторное использование старого refresh-токена отзывает подключение. Общее разрешение истекает через год. В БД сохраняются хеши токенов. Отзыв в настройках немедленно закрывает OAuth-доступ и ручной доступ данного агента.
+
+Инструмент `import_chatgpt_file` объявляет `_meta["openai/fileParams"] = ["file"]` по контракту ChatGPT. Файл скачивается на VPS по временной HTTPS-ссылке с закреплённым DNS, проверкой каждого редиректа и пределом 15 МБ. Исходные байты идут через тот же импорт, что multipart. Метаданные и хеш исходного файла определяют повтор; смена временной ссылки не создаёт дубликат. HTTP-эквивалент — `POST /api/agent/articles/chatgpt-file` с тем же JSON.
+
+Проверка локальной реализации OAuth и MCP не означает, что облачное приложение уже подключено. Требуется доступный VPS, подтверждение OAuth владельцем и проверка записи из существующей регулярной задачи. Если ChatGPT требует подтверждать запись, его нельзя обойти серверным флагом readOnlyHint.
+
+Контракты: [OpenAI authentication](https://developers.openai.com/plugins/build/auth), [передача файлов и метаданные инструментов](https://developers.openai.com/plugins/reference).
