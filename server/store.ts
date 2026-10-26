@@ -10,7 +10,7 @@ export function createStore(path: string) {
     Number(
       (db.prepare("PRAGMA user_version").get() as { user_version: number })
         .user_version,
-    ) > 3
+    ) > 4
   ) {
     db.close();
     throw new Error("Database schema is newer than this application.");
@@ -73,8 +73,22 @@ export function createStore(path: string) {
       agent_id TEXT NOT NULL REFERENCES agent_tokens(id), resource TEXT NOT NULL,
       expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0
     );
-    PRAGMA user_version=3;
   `);
+  const tokenColumns = db.prepare("PRAGMA table_info(agent_tokens)").all() as {
+    name: string;
+  }[];
+  if (!tokenColumns.some((column) => column.name === "scopes"))
+    db.exec(
+      `ALTER TABLE agent_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT '["articles:import"]'`,
+    );
+  const oauthTokenColumns = db
+    .prepare("PRAGMA table_info(oauth_tokens)")
+    .all() as { name: string }[];
+  if (!oauthTokenColumns.some((column) => column.name === "scopes"))
+    db.exec(
+      `ALTER TABLE oauth_tokens ADD COLUMN scopes TEXT NOT NULL DEFAULT '["articles:import"]'`,
+    );
+  db.exec("PRAGMA user_version=4;");
   db.prepare(
     "UPDATE articles SET job_state='error', job_error='Перевод прерван перезапуском. Готовые фрагменты сохранены; можно продолжить.' WHERE job_state='running'",
   ).run();

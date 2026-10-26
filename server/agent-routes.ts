@@ -10,6 +10,11 @@ import type { fetchArticle } from "./content.ts";
 import { fetchPreparedFile } from "./content.ts";
 import { chatgptFileInput } from "./mcp-tools.ts";
 import type { createOAuth } from "./oauth.ts";
+import type { LibraryService } from "./library-service.ts";
+import {
+  createManagementBackend,
+  requireAgentScopes,
+} from "./management-tools.ts";
 
 export function agentRoutes(
   store: Store,
@@ -17,9 +22,13 @@ export function agentRoutes(
   fetchSource?: typeof fetchArticle,
   oauth?: ReturnType<typeof createOAuth>,
   fetchAttachment = fetchPreparedFile,
+  library?: LibraryService,
 ) {
   const access = createAgentAccess(store, oauth);
   const imports = createImports(store, fetchSource);
+  const management = library
+    ? createManagementBackend(store, library, origin)
+    : undefined;
   const router = express.Router();
   router.use(access.authenticate);
   router.use((req, _res, next) => {
@@ -82,11 +91,40 @@ export function agentRoutes(
     );
     return receipt(articleReceipt(result.article, result.duplicate));
   }
+  router.use((req, res, next) => {
+    if (
+      req.path === "/api/agent/articles" ||
+      req.path.startsWith("/api/agent/articles/")
+    ) {
+      try {
+        requireAgentScopes(res.locals.agentScopes, ["articles:import"]);
+      } catch (error) {
+        return next(error);
+      }
+    }
+    next();
+  });
+  router.post("/api/agent/actions/:name", async (req, res) => {
+    if (!management)
+      throw new AppError(404, "Управление библиотекой недоступно.");
+    res.json(
+      await management.execute(
+        String(req.params.name),
+        req.body,
+        res.locals.agentScopes,
+      ),
+    );
+  });
   router.post("/api/agent/articles/chatgpt-file", async (req, res) =>
     res.json(await importFile(req.body, res.locals.agentTokenId)),
   );
   router.get("/api/agent/status", (_req, res) =>
-    res.json({ ok: true, scope: "articles:import", mcp_path: "/mcp" }),
+    res.json({
+      ok: true,
+      scope: res.locals.agentScopes.join(" "),
+      scopes: res.locals.agentScopes,
+      mcp_path: "/mcp",
+    }),
   );
   router.post("/api/agent/articles", async (req, res) => {
     const result = await imports.fromJson(req.body, res.locals.agentTokenId);
@@ -127,6 +165,15 @@ export function agentRoutes(
   router.post("/mcp", async (req, res, next) => {
     const tokenId = res.locals.agentTokenId as string;
     const server = createAgentMcp({
+      ...(management
+        ? {
+            management: {
+              scopes: res.locals.agentScopes as string[],
+              execute: (name: string, input: unknown) =>
+                management.execute(name, input, res.locals.agentScopes),
+            },
+          }
+        : {}),
       importArticle: async (input) => {
         const result = await imports.fromJson(input, tokenId);
         return receipt(articleReceipt(result.article, result.duplicate));

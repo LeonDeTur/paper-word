@@ -2,6 +2,13 @@ import { useEffect, useId, useState } from "react";
 import { KeyRound, Copy, Check } from "lucide-react";
 import { api, json } from "../api";
 import {
+  AGENT_SCOPES,
+  DEFAULT_AGENT_SCOPES,
+  MANAGE_AGENT_SCOPES,
+  SCOPE_LABELS,
+  type AgentScope,
+} from "../agent-scopes";
+import {
   localDateTime,
   parseTokenExpiryCommand,
   parseTokenExpiryDate,
@@ -16,6 +23,7 @@ type TokenInfo = {
   expires_at: string;
   revoked_at: string | null;
   last_used_at: string | null;
+  scopes: AgentScope[];
 };
 export function AgentAccess() {
   const [chatgpt, setChatgpt] = useState<{
@@ -25,6 +33,7 @@ export function AgentAccess() {
   } | null>(null);
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
   const [name, setName] = useState("Агент статей");
+  const [scopes, setScopes] = useState<AgentScope[]>(DEFAULT_AGENT_SCOPES);
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -99,7 +108,7 @@ export function AgentAccess() {
         "/agent-tokens",
         {
           method: "POST",
-          body: json({ name, ...expiry }),
+          body: json({ name, scopes, ...expiry }),
         },
       );
       setSecret(result.token);
@@ -117,17 +126,20 @@ export function AgentAccess() {
         <KeyRound size={22} />
         <div>
           <h2>Доступ агента</h2>
-          <p>Загрузка статей через HTTP API и MCP</p>
+          <p>Статьи, переводы, карточки и повторения через HTTP API и MCP</p>
         </div>
       </div>
       <p className="hint">
-        Токен разрешает загрузку и проверку её результата. Карточки, личный
-        словарь, удаление статей и настройки ему недоступны.
+        Выберите права для каждого подключения. Старые токены сохраняют только
+        загрузку статей. Удаление выдаётся отдельно; пароль и настройки сервера
+        агенту недоступны.
       </p>
-      <h3>ChatGPT и регулярные задачи</h3>
+      <h3>ChatGPT, Claude и регулярные задачи</h3>
       <p>
         В ChatGPT откройте Plugins → создание приложения, укажите адрес MCP и
-        выберите OAuth. Затем войдите в Paperword и разрешите загрузку статей.
+        выберите OAuth. В Claude добавьте этот же URL как пользовательский
+        коннектор с автоматической регистрацией OAuth-клиента. Затем войдите в
+        Paperword и выберите разрешения.
       </p>
       <div className="endpoint-info">
         <span>MCP URL</span>
@@ -166,6 +178,44 @@ export function AgentAccess() {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+        <fieldset className="agent-permissions stack" disabled={busy}>
+          <legend>Разрешения</legend>
+          <div className="button-row">
+            <button
+              type="button"
+              className="secondary compact"
+              onClick={() => setScopes([...DEFAULT_AGENT_SCOPES])}
+            >
+              Только импорт
+            </button>
+            <button
+              type="button"
+              className="secondary compact"
+              onClick={() => setScopes([...MANAGE_AGENT_SCOPES])}
+            >
+              Управление без удаления
+            </button>
+          </div>
+          {AGENT_SCOPES.map((scope) => (
+            <label key={scope}>
+              <input
+                type="checkbox"
+                checked={scopes.includes(scope)}
+                onChange={(e) =>
+                  setScopes((current) =>
+                    e.target.checked
+                      ? [...current, scope]
+                      : current.filter((s) => s !== scope),
+                  )
+                }
+              />
+              {SCOPE_LABELS[scope]}
+            </label>
+          ))}
+          {!scopes.length && (
+            <p className="error">Выберите хотя бы одно разрешение.</p>
+          )}
+        </fieldset>
         <fieldset className="token-expiry stack" disabled={busy}>
           <legend>Срок действия</legend>
           <div className="expiry-modes">
@@ -231,7 +281,7 @@ export function AgentAccess() {
         </fieldset>
         <button
           className="primary"
-          disabled={busy || !name.trim() || !expiryInput}
+          disabled={busy || !name.trim() || !expiryInput || !scopes.length}
         >
           Создать токен
         </button>
@@ -282,6 +332,9 @@ export function AgentAccess() {
                     : `Действует до ${displayDate(t.expires_at)}`}
                 {t.last_used_at &&
                   ` · Использован ${new Date(t.last_used_at).toLocaleDateString("ru-RU")}`}
+              </p>
+              <p className="hint">
+                {t.scopes.map((scope) => SCOPE_LABELS[scope]).join(" · ")}
               </p>
             </div>
             <button

@@ -19,6 +19,7 @@ import { z } from "zod";
 import { AppError } from "./content.ts";
 import { createAgentAccess } from "./agent-access.ts";
 import type { Store } from "./store.ts";
+import { AGENT_SCOPES, MANAGE_AGENT_SCOPES } from "../src/agent-scopes.ts";
 
 const scope = "articles:import";
 const digest = (value: string) =>
@@ -48,6 +49,7 @@ type TokenRow = {
   resource: string;
   expires: number;
   used: number;
+  scopes: string;
 };
 
 export function createOAuth(
@@ -62,7 +64,7 @@ export function createOAuth(
     throw new Error("APP_ORIGIN must contain only scheme and host.");
   const resource = `${issuer}/mcp`;
   const metadataUrl = `${issuer}/.well-known/oauth-protected-resource/mcp`;
-  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${scope}"`;
+  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${MANAGE_AGENT_SCOPES.join(" ")}"`;
   const { db } = store;
   const access = createAgentAccess(store);
   const requireResource = (value: URL | undefined) => {
@@ -72,8 +74,8 @@ export function createOAuth(
       );
   };
   const requireScopes = (scopes: string[] | undefined) => {
-    if (scopes?.some((s) => s !== scope))
-      throw new InvalidScopeError("Only articles:import is supported.");
+    if (scopes?.some((s) => !(AGENT_SCOPES as readonly string[]).includes(s)))
+      throw new InvalidScopeError("Unsupported Paperword scope.");
   };
   function checkRedirect(value: string) {
     let url: URL;
@@ -91,15 +93,20 @@ export function createOAuth(
       !production &&
       url.protocol === "http:" &&
       ["127.0.0.1", "localhost"].includes(url.hostname);
+    const claude =
+      url.protocol === "https:" &&
+      ["claude.ai", "claude.com"].includes(url.hostname) &&
+      url.pathname === "/api/mcp/auth_callback";
     if (
       url.username ||
       url.password ||
       url.hash ||
       url.search ||
-      (!chatgpt && !development)
+      (url.protocol === "https:" && Boolean(url.port)) ||
+      (!chatgpt && !claude && !development)
     )
       throw new InvalidClientMetadataError(
-        "Only ChatGPT OAuth callbacks are allowed; loopback callbacks are allowed in development.",
+        "Only approved ChatGPT/Claude OAuth callbacks are allowed; loopback callbacks are allowed in development.",
       );
   }
   const clientsStore: OAuthRegisteredClientsStore = {
@@ -130,7 +137,7 @@ export function createOAuth(
         token_endpoint_auth_method: "none" as const,
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
-        scope,
+        scope: input.scope || AGENT_SCOPES.join(" "),
       };
       db.prepare("INSERT INTO oauth_clients(id,metadata) VALUES(?,?)").run(
         client.client_id,
@@ -142,11 +149,18 @@ export function createOAuth(
   function activeGrant(id: string) {
     return db
       .prepare(
-        "SELECT id FROM agent_tokens WHERE id=? AND revoked_at IS NULL AND expires_at>?",
+        "SELECT id,scopes FROM agent_tokens WHERE id=? AND revoked_at IS NULL AND expires_at>?",
       )
-      .get(id, new Date().toISOString());
+      .get(id, new Date().toISOString()) as
+      { id: string; scopes: string } | undefined;
   }
-  function tokens(clientId: string, agentId: string): OAuthTokens {
+  function tokens(
+    clientId: string,
+    agentId: string,
+    scopes?: string[],
+  ): OAuthTokens {
+    const granted: string[] =
+      scopes || JSON.parse(activeGrant(agentId)!.scopes);
     const token = secret("pwo"),
       refresh = secret("pwr");
     const now = Date.now();
@@ -155,14 +169,22 @@ export function createOAuth(
       [refresh, "refresh", now + 90 * 86400_000],
     ] as const)
       db.prepare(
-        "INSERT INTO oauth_tokens(hash,kind,client_id,agent_id,resource,expires) VALUES(?,?,?,?,?,?)",
-      ).run(digest(value), kind, clientId, agentId, resource, expires);
+        "INSERT INTO oauth_tokens(hash,kind,client_id,agent_id,resource,expires,scopes) VALUES(?,?,?,?,?,?,?)",
+      ).run(
+        digest(value),
+        kind,
+        clientId,
+        agentId,
+        resource,
+        expires,
+        JSON.stringify(granted),
+      );
     return {
       access_token: token,
       token_type: "Bearer",
       expires_in: 3600,
       refresh_token: refresh,
-      scope,
+      scope: granted.join(" "),
     };
   }
   const provider: OAuthServerProvider = {
@@ -170,13 +192,29 @@ export function createOAuth(
     async authorize(client, params, res) {
       requireResource(params.resource);
       requireScopes(params.scopes);
+      const requested = params.scopes?.length
+        ? params.scopes
+        : MANAGE_AGENT_SCOPES.filter((s) =>
+            client.scope?.split(" ").includes(s),
+          );
+      if (
+        !requested.length ||
+        requested.some((s) => !client.scope?.split(" ").includes(s))
+      )
+        throw new InvalidScopeError(
+          "Scope was not registered for this client.",
+        );
       checkRedirect(params.redirectUri);
       if (!/^[A-Za-z0-9_-]{43}$/.test(params.codeChallenge))
         throw new InvalidGrantError("S256 PKCE is required.");
       const id = randomUUID();
       const csrf = secret("csrf");
       db.prepare("DELETE FROM oauth_requests WHERE expires<?").run(Date.now());
-      const saved: SavedParams = { ...params, resource: resource };
+      const saved: SavedParams = {
+        ...params,
+        scopes: [...new Set(requested)],
+        resource: resource,
+      };
       db.prepare(
         "INSERT INTO oauth_requests(id,client_id,params,csrf_hash,expires) VALUES(?,?,?,?,?)",
       ).run(
@@ -260,11 +298,21 @@ export function createOAuth(
         !activeGrant(row.agent_id)
       )
         throw new InvalidGrantError("Invalid or expired refresh token.");
+      const previous: string[] = JSON.parse(row.scopes);
+      const allowed: string[] = JSON.parse(activeGrant(row.agent_id)!.scopes);
+      const narrowed = scopes || previous;
+      if (
+        !narrowed.length ||
+        narrowed.some((s) => !previous.includes(s) || !allowed.includes(s))
+      )
+        throw new InvalidScopeError(
+          "Refresh cannot expand granted permissions.",
+        );
       return store.transaction(() => {
         db.prepare("UPDATE oauth_tokens SET used=1 WHERE hash=?").run(
           digest(refresh),
         );
-        return tokens(client.client_id, row.agent_id);
+        return tokens(client.client_id, row.agent_id, narrowed);
       });
     },
     async verifyAccessToken(token): Promise<AuthInfo> {
@@ -280,7 +328,11 @@ export function createOAuth(
       return {
         token,
         clientId: row.client_id,
-        scopes: [scope],
+        scopes: (JSON.parse(row.scopes) as string[]).filter((s) =>
+          (JSON.parse(activeGrant(row.agent_id)!.scopes) as string[]).includes(
+            s,
+          ),
+        ),
         expiresAt: Math.floor(row.expires / 1000),
         resource: new URL(resource),
         extra: { agentTokenId: row.agent_id },
@@ -305,7 +357,7 @@ export function createOAuth(
     if (!row)
       throw new AppError(
         404,
-        "Запрос подключения истёк или уже обработан. Начните подключение в ChatGPT заново.",
+        "Запрос подключения истёк или уже обработан. Начните подключение в вашем MCP-клиенте заново.",
       );
     return row;
   }
@@ -331,11 +383,17 @@ export function createOAuth(
     return {
       client_name: client.client_name || "MCP client",
       redirect_uri: params.redirectUri,
-      scope,
+      scope: params.scopes?.join(" ") || scope,
+      scopes: params.scopes || [scope],
       expires_at: new Date(row.expires).toISOString(),
     };
   }
-  function decide(id: string, allow: boolean, cookie: string | undefined) {
+  function decide(
+    id: string,
+    allow: boolean,
+    cookie: string | undefined,
+    selectedScopes?: string[],
+  ) {
     consentDetails(id, cookie);
     return store.transaction(() => {
       const row = pending(id);
@@ -347,12 +405,22 @@ export function createOAuth(
         redirect.searchParams.set("error", "access_denied");
         return { redirect_url: redirect.href };
       }
+      const requested = params.scopes || [scope];
+      const granted =
+        selectedScopes || requested.filter((s) => s !== "data:delete");
+      requireScopes(granted);
+      if (!granted.length || granted.some((s) => !requested.includes(s)))
+        throw new AppError(
+          422,
+          "Выберите только запрошенные приложением разрешения.",
+        );
       const client = clientsStore.getClient(
         row.client_id,
       ) as OAuthClientInformationFull;
       const grant = access.issue({
-        name: `ChatGPT: ${(client.client_name || "Paperword").slice(0, 60)}`,
+        name: `MCP: ${(client.client_name || new URL(params.redirectUri).host).slice(0, 60)}`,
         days: 365,
+        scopes: granted,
       });
       const code = secret("pwc");
       db.prepare(
@@ -377,8 +445,8 @@ export function createOAuth(
         provider,
         issuerUrl: new URL(issuer),
         resourceServerUrl: new URL(resource),
-        scopesSupported: [scope],
-        resourceName: "Paperword articles",
+        scopesSupported: [...AGENT_SCOPES],
+        resourceName: "Paperword",
       }),
     );
   return {
