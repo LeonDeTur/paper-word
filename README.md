@@ -145,3 +145,11 @@ Supports OAuth + PKCE, prepared ChatGPT file uploads through `import_chatgpt_fil
 The current release is **0.2.0**. See the [changelog](CHANGELOG.md) and [SemVer workflow](docs/versioning.md). The interface and MCP read their version from `package.json`.
 
 Before publication or environment setup, read [secrets and personal data](SECURITY.md). Replace repository example addresses with your own; keep real settings outside Git.
+
+## License
+
+Paperword source code and documentation are distributed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**. SPDX identifier: `PolyForm-Noncommercial-1.0.0`.
+
+The license permits use, modification and distribution for its specified noncommercial purposes. Commercial use, including paid hosting, inclusion in a commercial product and internal use for a company's commercial activities, requires separate permission from the copyright holder. Exceptions, including those for listed educational, nonprofit and government organizations, are governed by the full `LICENSE` text.
+
+Distributions must retain the license terms and copyright notice in [NOTICE](NOTICE). Third-party dependencies retain their licenses. Uploaded articles, translations and illustrations remain subject to their respective rights. Contact the repository owner through GitHub to discuss separate commercial permission.
