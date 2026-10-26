@@ -4,6 +4,7 @@ import { AppError } from "./content.ts";
 import type { Store } from "./store.ts";
 import type { RequestHandler } from "express";
 import { resolveTokenExpiry } from "../src/token-expiry.ts";
+import { AGENT_SCOPES, DEFAULT_AGENT_SCOPES } from "../src/agent-scopes.ts";
 
 export function createAgentAccess(
   store: Store,
@@ -13,7 +14,7 @@ export function createAgentAccess(
     provider: {
       verifyAccessToken(
         token: string,
-      ): Promise<{ extra?: Record<string, unknown> }>;
+      ): Promise<{ scopes: string[]; extra?: Record<string, unknown> }>;
     };
   },
 ) {
@@ -23,9 +24,10 @@ export function createAgentAccess(
   function list() {
     return db
       .prepare(
-        "SELECT id,name,created_at,expires_at,revoked_at,last_used_at FROM agent_tokens ORDER BY created_at DESC",
+        "SELECT id,name,created_at,expires_at,revoked_at,last_used_at,scopes FROM agent_tokens ORDER BY created_at DESC",
       )
-      .all();
+      .all()
+      .map((row) => ({ ...row, scopes: JSON.parse(String(row.scopes)) }));
   }
   function issue(raw: unknown) {
     const input = z
@@ -34,6 +36,11 @@ export function createAgentAccess(
         days: z.number().int().positive().optional(),
         expires_in: z.number().int().positive().safe().optional(),
         expires_at: z.string().datetime({ offset: true }).optional(),
+        scopes: z
+          .array(z.enum(AGENT_SCOPES))
+          .min(1)
+          .max(AGENT_SCOPES.length)
+          .default(DEFAULT_AGENT_SCOPES),
       })
       .strict()
       .parse(raw);
@@ -47,13 +54,21 @@ export function createAgentAccess(
     const token = `pw_${randomBytes(32).toString("base64url")}`;
     const id = randomUUID();
     db.prepare(
-      "INSERT INTO agent_tokens(id,name,hash,created_at,expires_at) VALUES(?,?,?,?,?)",
-    ).run(id, input.name, tokenHash(token), now.toISOString(), expiresAt);
+      "INSERT INTO agent_tokens(id,name,hash,created_at,expires_at,scopes) VALUES(?,?,?,?,?,?)",
+    ).run(
+      id,
+      input.name,
+      tokenHash(token),
+      now.toISOString(),
+      expiresAt,
+      JSON.stringify([...new Set(input.scopes)]),
+    );
     return {
       id,
       token,
       name: input.name,
       expires_at: expiresAt,
+      scopes: [...new Set(input.scopes)],
     };
   }
   function revoke(id: string) {
@@ -69,6 +84,7 @@ export function createAgentAccess(
       try {
         const info = await oauth.provider.verifyAccessToken(bearer);
         res.locals.agentTokenId = info.extra?.agentTokenId;
+        res.locals.agentScopes = info.scopes;
         db.prepare("UPDATE agent_tokens SET last_used_at=? WHERE id=?").run(
           new Date().toISOString(),
           String(res.locals.agentTokenId),
@@ -86,10 +102,10 @@ export function createAgentAccess(
     const row = value
       ? (db
           .prepare(
-            "SELECT id FROM agent_tokens WHERE hash=? AND revoked_at IS NULL AND expires_at>?",
+            "SELECT id,scopes FROM agent_tokens WHERE hash=? AND revoked_at IS NULL AND expires_at>?",
           )
           .get(tokenHash(value), new Date().toISOString()) as
-          { id: string } | undefined)
+          { id: string; scopes: string } | undefined)
       : undefined;
     if (!row) {
       res.set(
@@ -103,6 +119,7 @@ export function createAgentAccess(
       row.id,
     );
     res.locals.agentTokenId = row.id;
+    res.locals.agentScopes = JSON.parse(row.scopes);
     res.set("Cache-Control", "no-store");
     next();
   };

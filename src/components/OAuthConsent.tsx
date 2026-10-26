@@ -1,23 +1,31 @@
 import { useEffect, useState } from "react";
 import { api, json } from "../api";
+import { SCOPE_LABELS, type AgentScope } from "../agent-scopes";
 
 export function OAuthConsent() {
   const request = new URLSearchParams(location.search).get("request");
   const [details, setDetails] = useState<{
     client_name: string;
     redirect_uri: string;
+    scopes: AgentScope[];
   } | null>(null);
+  const [scopes, setScopes] = useState<AgentScope[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!request) {
-      setError("No connection request. Start from ChatGPT.");
+      setError("No connection request. Start from ChatGPT or Claude.");
       return;
     }
-    void api<{ client_name: string; redirect_uri: string }>(
-      `/oauth/requests/${encodeURIComponent(request)}`,
-    )
-      .then(setDetails)
+    void api<{
+      client_name: string;
+      redirect_uri: string;
+      scopes: AgentScope[];
+    }>(`/oauth/requests/${encodeURIComponent(request)}`)
+      .then((value) => {
+        setDetails(value);
+        setScopes(value.scopes.filter((s) => s !== "data:delete"));
+      })
       .catch((e) => setError(e.message));
   }, [request]);
   async function decide(allow: boolean) {
@@ -26,7 +34,7 @@ export function OAuthConsent() {
     try {
       const result = await api<{ redirect_url: string }>(
         `/oauth/requests/${encodeURIComponent(request || "")}/decision`,
-        { method: "POST", body: json({ allow }) },
+        { method: "POST", body: json({ allow, ...(allow ? { scopes } : {}) }) },
       );
       location.assign(result.redirect_url);
     } catch (e) {
@@ -40,16 +48,34 @@ export function OAuthConsent() {
         <div className="brand">
           paperword<span>↗</span>
         </div>
-        <h1>Connect ChatGPT</h1>
+        <h1>Connect an AI assistant</h1>
         {details ? (
           <>
             <p>
               The application “{details.client_name}” is requesting access to
               your library.
             </p>
-            <p>
-              It can upload articles and receive confirmation of its own
-              uploads. Access to cards, settings and article deletion is not
+            <fieldset className="agent-permissions stack" disabled={busy}>
+              <legend>Application permissions</legend>
+              {details.scopes.map((scope) => (
+                <label key={scope}>
+                  <input
+                    type="checkbox"
+                    checked={scopes.includes(scope)}
+                    onChange={(e) =>
+                      setScopes((current) =>
+                        e.target.checked
+                          ? [...current, scope]
+                          : current.filter((s) => s !== scope),
+                      )
+                    }
+                  />
+                  {SCOPE_LABELS[scope]}
+                </label>
+              ))}
+            </fieldset>
+            <p className="hint">
+              Deletion is disabled by default. Your password and model keys not
               granted.
             </p>
             <p className="hint">
@@ -67,10 +93,10 @@ export function OAuthConsent() {
               </button>
               <button
                 className="primary"
-                disabled={busy}
+                disabled={busy || !scopes.length}
                 onClick={() => void decide(true)}
               >
-                {busy ? "Connecting…" : "Allow article imports"}
+                {busy ? "Connecting…" : "Allow selected actions"}
               </button>
             </div>
           </>

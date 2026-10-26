@@ -1845,3 +1845,24 @@ progress::-webkit-progress-value {
     transition-duration: 0.001ms !important;
   }
 }
+.agent-permissions {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.agent-permissions label {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.agent-permissions input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  padding: 0;
+  accent-color: var(--accent);
+}

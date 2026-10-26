@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
+import { AGENT_SCOPES } from "../../src/agent-scopes";
 
 const artifactDir = "artifacts/qa";
 mkdirSync(artifactDir, { recursive: true });
@@ -25,7 +26,7 @@ test("OAuth: login returns to consent, responsive permissions, deny and approve"
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     code_challenge_method: "S256",
     resource: "http://127.0.0.1:3012/mcp",
-    scope: "articles:import",
+    scope: AGENT_SCOPES.join(" "),
     state: "browser-fixture",
   });
   await page.goto(`/authorize?${query}`);
@@ -35,11 +36,23 @@ test("OAuth: login returns to consent, responsive permissions, deny and approve"
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: "\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c ChatGPT",
+      name: "Connect an AI assistant",
       exact: true,
     }),
   ).toBeVisible();
   await expect(page.getByText(/ChatGPT browser fixture/)).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Delete articles and cards",
+      exact: true,
+    }),
+  ).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Read and search the entire library",
+      exact: true,
+    }),
+  ).toBeChecked();
   await page.setViewportSize({ width: 1440, height: 900 });
   await noOverflow(page);
   await page.screenshot({
@@ -62,11 +75,14 @@ test("OAuth: login returns to consent, responsive permissions, deny and approve"
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page).toHaveURL(/error=access_denied/);
   await page.goto(`/authorize?${query}`);
+  const deletion = page.getByRole("checkbox", {
+    name: "Delete articles and cards",
+    exact: true,
+  });
+  await expect(deletion).not.toBeChecked();
+  await deletion.check();
   await page
-    .getByRole("button", {
-      name: "\u0420\u0430\u0437\u0440\u0435\u0448\u0438\u0442\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u0441\u0442\u0430\u0442\u0435\u0439",
-      exact: true,
-    })
+    .getByRole("button", { name: "Allow selected actions", exact: true })
     .click();
   await expect(page).toHaveURL(/oauth\/test-callback\?.*code=/);
   expect(new URL(page.url()).searchParams.get("state")).toBe("browser-fixture");
@@ -351,6 +367,21 @@ test("mobile: narrow layout, reader, model connection and dark theme; keyboard f
     .locator(".mobile-nav")
     .getByRole("button", { name: "Settings", exact: true })
     .click();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Delete articles and cards",
+      exact: true,
+    }),
+  ).not.toBeChecked();
+  await page
+    .getByRole("button", { name: "Manage without deletion", exact: true })
+    .click();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Create and edit cards",
+      exact: true,
+    }),
+  ).toBeChecked();
   await page.getByRole("button", { name: "Create token", exact: true }).click();
   await expect(page.locator(".agent-secret")).toBeVisible();
   const agentToken = await page.locator(".agent-secret code").innerText();
@@ -358,6 +389,9 @@ test("mobile: narrow layout, reader, model connection and dark theme; keyboard f
     headers: { Authorization: `Bearer ${agentToken}` },
   });
   expect(agentStatus.status()).toBe(200);
+  const status = await agentStatus.json();
+  expect(status.scopes).toContain("cards:write");
+  expect(status.scopes).not.toContain("data:delete");
   const manualToken = page
     .locator(".agent-token")
     .filter({ hasText: "Article agent" });

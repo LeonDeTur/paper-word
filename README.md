@@ -140,7 +140,7 @@ Format code with `npm run format`.
 
 ## ChatGPT and versions
 
-Supports OAuth + PKCE, prepared ChatGPT file uploads through `import_chatgpt_file`, HTTP API and stdio. [Agent connection](docs/agent-integration.md), [existing-task instructions](docs/chatgpt-task-instructions.md). Server connection requires deployment and owner OAuth approval.
+Supports OAuth + PKCE for ChatGPT and Claude, prepared ChatGPT files through `import_chatgpt_file`, HTTP API and stdio. MCP provides library search and reading, article and translation editing, background translation, card creation/editing, review queues, ratings and statistics. Permissions are selected in Settings and OAuth; deletion requires a separate permission and is disabled by default. Existing tokens retain import-only access. Agents cannot access the password or model key. [Agent setup and tools](docs/agent-integration.md), [existing-task instructions](docs/chatgpt-task-instructions.md). Cloud connections require deployment, owner OAuth approval and validation for each client. Interactive MCP Apps are not implemented yet.
 
 The current release is **0.2.0**. See the [changelog](CHANGELOG.md) and [SemVer workflow](docs/versioning.md). The interface and MCP read their version from `package.json`.
 

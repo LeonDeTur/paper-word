@@ -11,6 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { MANAGE_AGENT_SCOPES } from "../src/agent-scopes.ts";
 
 const h = { "X-Paperword": "1" };
 const article = {
@@ -316,7 +317,7 @@ test("stdio MCP uploads a local article and rejects files outside the allowed di
   const issued = await request(app)
     .post("/api/agent-tokens")
     .set(h)
-    .send({ name: "Stdio" })
+    .send({ name: "Stdio", scopes: MANAGE_AGENT_SCOPES })
     .expect(201);
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -343,6 +344,8 @@ test("stdio MCP uploads a local article and rejects files outside the allowed di
     );
     const tools = await client.listTools();
     assert.ok(tools.tools.some((t) => t.name === "upload_article_file"));
+    assert.ok(tools.tools.some((t) => t.name === "create_card"));
+    assert.ok(!tools.tools.some((t) => t.name === "delete_card"));
     const result = await client.callTool({
       name: "upload_article_file",
       arguments: { file_path: "paper.html", external_id: "stdio-v1" },
@@ -352,6 +355,15 @@ test("stdio MCP uploads a local article and rejects files outside the allowed di
       store.articles()[0].blocks[0].ru,
       "\u0422\u0435\u043a\u0441\u0442.",
     );
+    const card = await client.callTool({
+      name: "create_card",
+      arguments: {
+        lemma: "test",
+        translation: "\u043f\u0440\u043e\u0432\u0435\u0440\u044f\u0442\u044c",
+      },
+    });
+    assert.ok(!card.isError);
+    assert.equal(store.cards()[0].lemma, "test");
     const blocked = await client.callTool({
       name: "upload_article_file",
       arguments: { file_path: "../outside.txt", external_id: "outside" },

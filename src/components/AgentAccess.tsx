@@ -2,6 +2,13 @@ import { useEffect, useId, useState } from "react";
 import { KeyRound, Copy, Check } from "lucide-react";
 import { api, json } from "../api";
 import {
+  AGENT_SCOPES,
+  DEFAULT_AGENT_SCOPES,
+  MANAGE_AGENT_SCOPES,
+  SCOPE_LABELS,
+  type AgentScope,
+} from "../agent-scopes";
+import {
   localDateTime,
   parseTokenExpiryCommand,
   parseTokenExpiryDate,
@@ -16,6 +23,7 @@ type TokenInfo = {
   expires_at: string;
   revoked_at: string | null;
   last_used_at: string | null;
+  scopes: AgentScope[];
 };
 export function AgentAccess() {
   const [chatgpt, setChatgpt] = useState<{
@@ -25,6 +33,7 @@ export function AgentAccess() {
   } | null>(null);
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
   const [name, setName] = useState("Article agent");
+  const [scopes, setScopes] = useState<AgentScope[]>(DEFAULT_AGENT_SCOPES);
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -99,7 +108,7 @@ export function AgentAccess() {
         "/agent-tokens",
         {
           method: "POST",
-          body: json({ name, ...expiry }),
+          body: json({ name, scopes, ...expiry }),
         },
       );
       setSecret(result.token);
@@ -117,17 +126,20 @@ export function AgentAccess() {
         <KeyRound size={22} />
         <div>
           <h2>Agent access</h2>
-          <p>Import articles through HTTP API and MCP</p>
+          <p>Articles, translations, cards and reviews over HTTP API and MCP</p>
         </div>
       </div>
       <p className="hint">
-        The token permits article import and receipt checks. Cards, personal
-        vocabulary, article deletion and settings remain inaccessible.
+        Choose permissions for each connection. Existing tokens keep only
+        article import. Deletion requires a separate permission; agents cannot
+        access the password or server settings.
       </p>
-      <h3>ChatGPT and recurring tasks</h3>
+      <h3>ChatGPT, Claude and recurring tasks</h3>
       <p>
         In ChatGPT, open Plugins → Create app, enter the MCP URL and select
-        OAuth. Then sign in to Paperword and approve article imports.
+        OAuth. In Claude, add the same URL as a custom connector with automatic
+        OAuth client registration. Then sign in to Paperword and choose
+        permissions.
       </p>
       <div className="endpoint-info">
         <span>MCP URL</span>
@@ -166,6 +178,44 @@ export function AgentAccess() {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+        <fieldset className="agent-permissions stack" disabled={busy}>
+          <legend>Permissions</legend>
+          <div className="button-row">
+            <button
+              type="button"
+              className="secondary compact"
+              onClick={() => setScopes([...DEFAULT_AGENT_SCOPES])}
+            >
+              Import only
+            </button>
+            <button
+              type="button"
+              className="secondary compact"
+              onClick={() => setScopes([...MANAGE_AGENT_SCOPES])}
+            >
+              Manage without deletion
+            </button>
+          </div>
+          {AGENT_SCOPES.map((scope) => (
+            <label key={scope}>
+              <input
+                type="checkbox"
+                checked={scopes.includes(scope)}
+                onChange={(e) =>
+                  setScopes((current) =>
+                    e.target.checked
+                      ? [...current, scope]
+                      : current.filter((s) => s !== scope),
+                  )
+                }
+              />
+              {SCOPE_LABELS[scope]}
+            </label>
+          ))}
+          {!scopes.length && (
+            <p className="error">Select at least one permission.</p>
+          )}
+        </fieldset>
         <fieldset className="token-expiry stack" disabled={busy}>
           <legend>Token expiry</legend>
           <div className="expiry-modes">
@@ -231,7 +281,7 @@ export function AgentAccess() {
         </fieldset>
         <button
           className="primary"
-          disabled={busy || !name.trim() || !expiryInput}
+          disabled={busy || !name.trim() || !expiryInput || !scopes.length}
         >
           Create token
         </button>
@@ -280,6 +330,9 @@ export function AgentAccess() {
                     : `Expires ${displayDate(t.expires_at)}`}
                 {t.last_used_at &&
                   ` · Last used ${new Date(t.last_used_at).toLocaleDateString("en-GB")}`}
+              </p>
+              <p className="hint">
+                {t.scopes.map((scope) => SCOPE_LABELS[scope]).join(" · ")}
               </p>
             </div>
             <button

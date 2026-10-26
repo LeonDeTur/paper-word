@@ -6,6 +6,9 @@ Changes follow SemVer. Dates indicate release dates.
 
 ### Added
 
+- MCP and HTTP API for library search and reading, article and translation editing, background translation, cards, reviews and statistics. The website and MCP share an operations layer.
+- Separate agent permissions, selectable scopes for tokens and OAuth; deletion requires additional `data:delete` and is disabled by default. Existing tokens migrate with import-only access.
+- OAuth with PKCE for Claude, scope narrowing on refresh, identical management tools over remote MCP and stdio; translation writes reject stale edits.
 - Token expiry through a calendar with date/time or an interface command (`30d`, `12h`, `2w`, `2027-12-31 18:00`). The 365-day cap is removed; HTTP API supports `expires_at` and `expires_in` with server-side validation.
 - PolyForm Noncommercial License 1.0.0 for code and documentation; license and copyright notice included in the Docker image.
 
