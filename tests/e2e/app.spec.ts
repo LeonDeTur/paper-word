@@ -351,9 +351,7 @@ test("mobile: narrow layout, reader, model connection and dark theme; keyboard f
     .locator(".mobile-nav")
     .getByRole("button", { name: "Settings", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Create 90-day token", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Create token", exact: true }).click();
   await expect(page.locator(".agent-secret")).toBeVisible();
   const agentToken = await page.locator(".agent-secret code").innerText();
   const agentStatus = await page.request.get("/api/agent/status", {
@@ -503,4 +501,122 @@ test("word tooltip wraps within a narrow viewport and closes when leaving the wo
     /Researchers\s+observed/,
   );
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("token expiry: calendar, command, invalid dates and long-lived tokens on desktop and mobile", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await login(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByLabel("Agent name", { exact: true })
+    .fill("Calendar expiry fixture");
+  const localExpiry = `${new Date().getFullYear() + 2}-06-17T18:30`;
+  await page
+    .getByLabel("Expiration date and time", { exact: true })
+    .fill(localExpiry);
+  const expected = await page.evaluate(
+    (value) => new Date(value).toISOString(),
+    localExpiry,
+  );
+  await noOverflow(page);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({
+    path: `${artifactDir}/token-calendar-desktop.png`,
+    fullPage: true,
+  });
+  const calendarResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/agent-tokens") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Create token", exact: true }).click();
+  const created = await calendarResponse;
+  expect(created.status()).toBe(201);
+  expect((await created.json()).expires_at).toBe(expected);
+  await expect(page.locator(".agent-secret")).toBeVisible();
+  await page.getByRole("button", { name: "Hide token", exact: true }).click();
+  await page.getByRole("radio", { name: "Command", exact: true }).check();
+  await page.getByLabel("Duration or date", { exact: true }).fill("31.02.2027");
+  await expect(
+    page.getByRole("button", { name: "Create token", exact: true }),
+  ).toBeDisabled();
+  await expect(page.locator(".token-expiry")).toContainText(
+    "This date or time does not exist",
+  );
+  await page.getByLabel("Duration or date", { exact: true }).fill("01.01.2020");
+  await expect(page.locator(".token-expiry")).toContainText(
+    "The expiration date must be in the future",
+  );
+  await page
+    .getByLabel("Duration or date", { exact: true })
+    .fill(`31.12.${new Date().getFullYear() + 2} 18:30`);
+  await expect(
+    page.getByRole("button", { name: "Create token", exact: true }),
+  ).toBeEnabled();
+  await page.getByLabel("Duration or date", { exact: true }).fill("500d");
+  await page
+    .getByLabel("Agent name", { exact: true })
+    .fill("Command expiry fixture");
+  await page.getByRole("button", { name: "Dark theme", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.evaluate(() =>
+    Promise.allSettled(
+      document.getAnimations().map((animation) => animation.finished),
+    ),
+  );
+  await noOverflow(page);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({
+    path: `${artifactDir}/token-command-mobile.png`,
+    fullPage: true,
+  });
+  const before = Date.now();
+  const commandResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/agent-tokens") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Create token", exact: true }).click();
+  const commandCreated = await commandResponse;
+  expect(commandCreated.status()).toBe(201);
+  const issued = await commandCreated.json();
+  expect(Date.parse(issued.expires_at)).toBeGreaterThanOrEqual(
+    before + 500 * 86400000,
+  );
+  expect(
+    (
+      await page.request.get("/api/agent/status", {
+        headers: { Authorization: `Bearer ${issued.token}` },
+      })
+    ).status(),
+  ).toBe(200);
+  await expect(
+    page.locator(".agent-token").filter({ hasText: "Command expiry fixture" }),
+  ).toContainText("Expires");
+  await page.getByRole("button", { name: "Hide token", exact: true }).click();
+  const expiring = await page.request.post("/api/agent-tokens", {
+    headers: { "X-Paperword": "1" },
+    data: { name: "Expiry status fixture", expires_in: 2 },
+  });
+  expect(expiring.status()).toBe(201);
+  await page.reload();
+  const expiredRow = page
+    .locator(".agent-token")
+    .filter({ hasText: "Expiry status fixture" });
+  await expect(expiredRow).toContainText("Expired", { timeout: 5000 });
 });

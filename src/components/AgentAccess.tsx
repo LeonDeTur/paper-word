@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { KeyRound, Copy, Check } from "lucide-react";
 import { api, json } from "../api";
+import {
+  localDateTime,
+  parseTokenExpiryCommand,
+  parseTokenExpiryDate,
+  resolveTokenExpiry,
+  type TokenExpiryInput,
+} from "../token-expiry";
 
 type TokenInfo = {
   id: string;
@@ -22,6 +29,50 @@ export function AgentAccess() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [expiryMode, setExpiryMode] = useState<"calendar" | "command">(
+    "calendar",
+  );
+  const [expiryDate, setExpiryDate] = useState(() =>
+    localDateTime(new Date(Date.now() + 90 * 86400000)),
+  );
+  const [expiryCommand, setExpiryCommand] = useState("90d");
+  const [issuedExpiry, setIssuedExpiry] = useState("");
+  const [checkedAt, setCheckedAt] = useState(Date.now);
+  const helpId = useId();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const displayDate = (value: string | Date) =>
+    new Date(value).toLocaleString("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  let expiryInput: TokenExpiryInput | undefined,
+    expiryPreview = "",
+    expiryError = "";
+  try {
+    expiryInput =
+      expiryMode === "calendar"
+        ? parseTokenExpiryDate(expiryDate)
+        : parseTokenExpiryCommand(expiryCommand);
+    expiryPreview = displayDate(resolveTokenExpiry(expiryInput));
+  } catch (e) {
+    expiryError = (e as Error).message;
+  }
+  const selectedExpiry = expiryInput?.expires_at;
+  useEffect(() => {
+    const next = Math.min(
+      ...tokens
+        .filter((t) => !t.revoked_at)
+        .map((t) => Date.parse(t.expires_at))
+        .concat(selectedExpiry ? [Date.parse(selectedExpiry)] : [])
+        .filter((time) => time > checkedAt),
+    );
+    if (!Number.isFinite(next)) return;
+    const timer = setTimeout(
+      () => setCheckedAt(Date.now()),
+      Math.min(Math.max(1, next - Date.now() + 1), 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [tokens, checkedAt, selectedExpiry]);
   async function load() {
     setTokens(await api<TokenInfo[]>("/agent-tokens"));
   }
@@ -40,11 +91,19 @@ export function AgentAccess() {
     setSecret("");
     setCopied(false);
     try {
-      const result = await api<{ token: string }>("/agent-tokens", {
-        method: "POST",
-        body: json({ name, days: 90 }),
-      });
+      const expiry =
+        expiryMode === "calendar"
+          ? parseTokenExpiryDate(expiryDate)
+          : parseTokenExpiryCommand(expiryCommand);
+      const result = await api<{ token: string; expires_at: string }>(
+        "/agent-tokens",
+        {
+          method: "POST",
+          body: json({ name, ...expiry }),
+        },
+      );
       setSecret(result.token);
+      setIssuedExpiry(result.expires_at);
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -107,13 +166,82 @@ export function AgentAccess() {
             onChange={(e) => setName(e.target.value)}
           />
         </label>
-        <button className="primary" disabled={busy || !name.trim()}>
-          Create 90-day token
+        <fieldset className="token-expiry stack" disabled={busy}>
+          <legend>Token expiry</legend>
+          <div className="expiry-modes">
+            <label>
+              <input
+                type="radio"
+                name={helpId}
+                checked={expiryMode === "calendar"}
+                onChange={() => setExpiryMode("calendar")}
+              />
+              Calendar
+            </label>
+            <label>
+              <input
+                type="radio"
+                name={helpId}
+                checked={expiryMode === "command"}
+                onChange={() => setExpiryMode("command")}
+              />
+              Command
+            </label>
+          </div>
+          {expiryMode === "calendar" ? (
+            <label>
+              Expiration date and time
+              <input
+                type="datetime-local"
+                required
+                step={60}
+                min={localDateTime(new Date())}
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                aria-describedby={helpId}
+                aria-invalid={Boolean(expiryError)}
+              />
+            </label>
+          ) : (
+            <label>
+              Duration or date
+              <input
+                type="text"
+                required
+                maxLength={80}
+                value={expiryCommand}
+                onChange={(e) => setExpiryCommand(e.target.value)}
+                placeholder="30d or 2027-12-31 18:00"
+                aria-describedby={helpId}
+                aria-invalid={Boolean(expiryError)}
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </label>
+          )}
+          <p className="hint" id={helpId}>
+            {expiryMode === "command"
+              ? "30d — days, 12h — hours, 2w — weeks, 15m — minutes. Dates without a time end at the end of the day. "
+              : "Choose a date and time in the calendar. "}
+            Timezone: {timezone}.
+          </p>
+          <p className={expiryError ? "error" : "hint"} role="status">
+            {expiryError || `Expires ${expiryPreview}`}
+          </p>
+        </fieldset>
+        <button
+          className="primary"
+          disabled={busy || !name.trim() || !expiryInput}
+        >
+          Create token
         </button>
       </form>
       {secret && (
         <div className="agent-secret">
           <p>Copy the token now — it will not be shown again.</p>
+          <p>
+            Expires {displayDate(issuedExpiry)} ({timezone}).
+          </p>
           <code>{secret}</code>
           <button
             className="secondary"
@@ -147,9 +275,9 @@ export function AgentAccess() {
               <p className="hint">
                 {t.revoked_at
                   ? "Revoked"
-                  : new Date(t.expires_at) < new Date()
+                  : Date.parse(t.expires_at) <= checkedAt
                     ? "Expired"
-                    : `Expires ${new Date(t.expires_at).toLocaleDateString("en-GB")}`}
+                    : `Expires ${displayDate(t.expires_at)}`}
                 {t.last_used_at &&
                   ` · Last used ${new Date(t.last_used_at).toLocaleDateString("en-GB")}`}
               </p>

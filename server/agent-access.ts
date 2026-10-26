@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AppError } from "./content.ts";
 import type { Store } from "./store.ts";
 import type { RequestHandler } from "express";
+import { resolveTokenExpiry } from "../src/token-expiry.ts";
 
 export function createAgentAccess(
   store: Store,
@@ -30,26 +31,29 @@ export function createAgentAccess(
     const input = z
       .object({
         name: z.string().trim().min(1).max(80),
-        days: z.number().int().min(1).max(365).default(90),
+        days: z.number().int().positive().optional(),
+        expires_in: z.number().int().positive().safe().optional(),
+        expires_at: z.string().datetime({ offset: true }).optional(),
       })
+      .strict()
       .parse(raw);
+    const now = new Date();
+    let expiresAt: string;
+    try {
+      expiresAt = resolveTokenExpiry(input, now).toISOString();
+    } catch (error) {
+      throw new AppError(422, (error as Error).message);
+    }
     const token = `pw_${randomBytes(32).toString("base64url")}`;
     const id = randomUUID();
-    const now = new Date();
     db.prepare(
       "INSERT INTO agent_tokens(id,name,hash,created_at,expires_at) VALUES(?,?,?,?,?)",
-    ).run(
-      id,
-      input.name,
-      tokenHash(token),
-      now.toISOString(),
-      new Date(now.getTime() + input.days * 86400000).toISOString(),
-    );
+    ).run(id, input.name, tokenHash(token), now.toISOString(), expiresAt);
     return {
       id,
       token,
       name: input.name,
-      expires_at: new Date(now.getTime() + input.days * 86400000).toISOString(),
+      expires_at: expiresAt,
     };
   }
   function revoke(id: string) {

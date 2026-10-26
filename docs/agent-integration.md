@@ -4,7 +4,9 @@ The service accepts prepared articles through HTTP API and MCP using a shared im
 
 ## Token and service address
 
-Open **Settings → Agent access → Create 90-day token**. Copy the shown token into the agent's environment. The server stores only SHA-256; the original cannot be recovered. Revoke immediately disables HTTP and MCP access. Issue separate tokens for separate integrations.
+Open **Settings → Agent access**, choose expiry and click **Create token**. Use the calendar or commands: `30d`, `12h`, `2w`, `15m`, `30 days`, `31.12.2027 18:00` or `2027-12-31`. A date without time ends at the end of that day in the displayed browser timezone. Durations may exceed 365 days. Copy the token into the agent's environment. Only SHA-256 is stored; the original cannot be recovered. Revoke immediately disables HTTP and MCP access. Issue separate tokens for separate integrations.
+
+Owner HTTP API: `POST /api/agent-tokens` with session cookie, `X-Paperword: 1` and JSON `{ "name": "Importer", "expires_in": 43200 }` (seconds) or `{ "name": "Importer", "expires_at": "2027-12-31T18:00:00+03:00" }`. `expires_at` requires a timezone-aware ISO date. Legacy `days` remains supported; the default is 90 days. Supply only one of `days`, `expires_in`, `expires_at`. Past, nonexistent or unrepresentable dates return `422`. Expiry is stored in UTC and checked on every request. These settings apply to manual bearer tokens; ChatGPT OAuth lifetimes are described below.
 
 `PAPERWORD_URL` is the service address, such as `https://papers.example.com`; `PAPERWORD_TOKEN` is the issued token. Locally, `http://127.0.0.1:3001` is allowed. Remote agents need a VPS address reachable from their network; localhost refers to the agent's own computer.
 

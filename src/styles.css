@@ -1283,6 +1283,38 @@ progress::-webkit-progress-value {
 .settings-form button {
   align-self: flex-start;
 }
+.token-expiry {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.token-expiry legend {
+  padding: 0 0 12px;
+  font-weight: 500;
+}
+.expiry-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.expiry-modes label {
+  flex-direction: row;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+.expiry-modes input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.token-expiry input[type="datetime-local"] {
+  min-width: 0;
+  max-width: 100%;
+}
 .link-button {
   display: inline-flex;
   align-items: center;
