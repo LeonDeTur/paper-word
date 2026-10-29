@@ -4,7 +4,6 @@ import { rateLimit } from "express-rate-limit";
 import multer from "multer";
 import {
   randomBytes,
-  randomUUID,
   createHash,
   createHmac,
   scryptSync,
@@ -19,17 +18,11 @@ import {
   limitBlocks,
 } from "./content.ts";
 import { createStore } from "./store.ts";
-import { normalizeLemma, scheduleReview } from "./scheduler.ts";
-import {
-  completeJSON,
-  listModels,
-  translationSchema,
-  wordSchema,
-  type AIConfig,
-} from "./ai.ts";
-import type { Article, Schedule, Direction } from "../src/types.ts";
+import { listModels, type AIConfig } from "./ai.ts";
 import { agentRoutes } from "./agent-routes.ts";
 import { createOAuth } from "./oauth.ts";
+import { createLibraryService } from "./library-service.ts";
+import { AGENT_SCOPES } from "../src/agent-scopes.ts";
 import { VERSION } from "../src/version.ts";
 
 export type AppOptions = {
@@ -41,27 +34,6 @@ export type AppOptions = {
   fetchSource?: typeof fetchArticle;
   fetchAttachment?: typeof fetchPreparedFile;
 };
-const idSchema = z.string().uuid();
-const blockSchema = z.object({
-  id: z.number().int().nonnegative(),
-  kind: z.enum(["paragraph", "heading", "figure"]),
-  text: z.string().min(1).max(50_000),
-  ru: z.string().max(60_000),
-  image: z
-    .string()
-    .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/)
-    .max(3_000_000)
-    .optional(),
-});
-const cardInput = z.object({
-  lemma: z.string().trim().min(1).max(160),
-  translation: z.string().trim().min(1).max(1000),
-  source_form: z.string().trim().max(160).default(""),
-  context: z.string().max(50_000).default(""),
-  notes: z.string().max(3000).default(""),
-  article_id: idSchema.nullable().default(null),
-  block_id: z.number().int().nonnegative().default(0),
-});
 
 export function createApp(options: AppOptions) {
   if (
@@ -144,12 +116,14 @@ export function createApp(options: AppOptions) {
     options.production,
   );
   app.use(oauth.router);
+  const library = createLibraryService(store, aiConfig);
   const agents = agentRoutes(
     store,
     options.origin,
     options.fetchSource,
     oauth,
     options.fetchAttachment,
+    library,
   );
   app.use((req, res, next) => {
     if (
@@ -278,6 +252,7 @@ export function createApp(options: AppOptions) {
       mcp_url: oauth.resource,
       metadata_url: oauth.metadataUrl,
       scope: "articles:import",
+      scopes: AGENT_SCOPES,
       version: VERSION,
     }),
   );
@@ -285,8 +260,19 @@ export function createApp(options: AppOptions) {
     res.json(oauth.consentDetails(String(req.params.id), req.headers.cookie)),
   );
   app.post("/api/oauth/requests/:id/decision", (req, res) => {
-    const { allow } = z.object({ allow: z.boolean() }).parse(req.body);
-    res.json(oauth.decide(String(req.params.id), allow, req.headers.cookie));
+    const { allow, scopes } = z
+      .object({
+        allow: z.boolean(),
+        scopes: z
+          .array(z.enum(AGENT_SCOPES))
+          .min(1)
+          .max(AGENT_SCOPES.length)
+          .optional(),
+      })
+      .parse(req.body);
+    res.json(
+      oauth.decide(String(req.params.id), allow, req.headers.cookie, scopes),
+    );
   });
   app.post("/api/agent-tokens", (req, res) =>
     res.status(201).json(agents.access.issue(req.body)),
@@ -364,59 +350,23 @@ export function createApp(options: AppOptions) {
         ),
       );
   });
-  function findArticle(id: string) {
-    const article = store.article(idSchema.parse(id));
-    if (!article) throw new AppError(404, "Article not found.");
-    return article;
-  }
   app.get("/api/articles/:id", (req, res) =>
-    res.json(findArticle(String(req.params.id))),
+    res.json(library.findArticle(String(req.params.id))),
   );
   app.patch("/api/articles/:id", (req, res) => {
-    const article = findArticle(String(req.params.id));
-    const input = z
-      .object({
-        title: z.string().trim().min(1).max(500).optional(),
-        tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
-        status: z.enum(["inbox", "reading", "done"]).optional(),
-        starred: z.boolean().optional(),
-        read_block: z
-          .number()
-          .int()
-          .min(0)
-          .max(Math.max(0, article.blocks.length - 1))
-          .optional(),
-      })
-      .parse(req.body);
-    db.prepare(
-      "UPDATE articles SET title=?,tags=?,status=?,starred=?,read_block=? WHERE id=?",
-    ).run(
-      input.title ?? article.title,
-      JSON.stringify(input.tags ?? article.tags),
-      input.status ?? article.status,
-      Number(input.starred ?? article.starred),
-      input.read_block ?? article.read_block,
-      article.id,
-    );
-    res.json(store.article(article.id));
+    res.json(library.updateArticle(String(req.params.id), req.body));
   });
   app.patch("/api/articles/:id/blocks/:block", (req, res) => {
-    const article = findArticle(String(req.params.id));
-    const block = article.blocks.find((b) => b.id === Number(req.params.block));
-    if (!block) throw new AppError(404, "Block not found.");
-    if (article.job_state === "running")
-      throw new AppError(409, "Wait for automatic translation to finish.");
-    block.ru = z
-      .object({ ru: z.string().trim().max(60_000) })
-      .parse(req.body).ru;
-    db.prepare("UPDATE articles SET blocks=? WHERE id=?").run(
-      JSON.stringify(article.blocks),
-      article.id,
+    res.json(
+      library.updateBlock(
+        String(req.params.id),
+        Number(req.params.block),
+        req.body,
+      ),
     );
-    res.json(store.article(article.id));
   });
   app.get("/api/articles/:id/original", (req, res) => {
-    findArticle(String(req.params.id));
+    library.findArticle(String(req.params.id));
     const row = db
       .prepare("SELECT original,original_name FROM articles WHERE id=?")
       .get(String(req.params.id)) as any;
@@ -424,246 +374,43 @@ export function createApp(options: AppOptions) {
       throw new AppError(404, "The original file was not saved.");
     res.set("Content-Type", "application/octet-stream");
     res
-      .attachment(row.original_name.replace(/[^\w.\-]/g, "_") || "article.html")
+      .attachment(row.original_name.replace(/[^\w.-]/g, "_") || "article.html")
       .send(Buffer.from(row.original));
   });
   app.delete("/api/articles/:id", (req, res) => {
-    const article = findArticle(String(req.params.id));
-    if (article.job_state === "running")
-      throw new AppError(409, "Stop translation before deleting the article.");
-    db.prepare("DELETE FROM articles WHERE id=?").run(article.id);
-    res.json({ ok: true });
+    res.json(library.deleteArticle(String(req.params.id)));
   });
-  const cancelled = new Set<string>();
-  async function translate(article: Article) {
-    try {
-      const pending = article.blocks.filter(
-        (b) => !b.ru && b.kind !== "figure",
-      );
-      for (const block of pending) {
-        if (cancelled.has(article.id)) break;
-        const result = await completeJSON(
-          aiConfig(),
-          'Translate the supplied English article fragment into accurate Russian, preserving meaning, technical terms, references and formulas. Return {"translations":[{"id":the supplied id,"ru":"Russian translation"}]}. Do not summarize or omit content.',
-          [{ id: block.id, text: block.text }],
-          translationSchema,
-        );
-        if (
-          result.translations.length !== 1 ||
-          result.translations[0].id !== block.id
-        )
-          throw new AppError(
-            502,
-            "The model returned mismatched blocks. Completed translations have been saved.",
-          );
-        const latest = store.article(article.id)!;
-        latest.blocks.find((b) => b.id === block.id)!.ru =
-          result.translations[0].ru;
-        db.prepare("UPDATE articles SET blocks=? WHERE id=?").run(
-          JSON.stringify(latest.blocks),
-          article.id,
-        );
-      }
-      db.prepare(
-        "UPDATE articles SET job_state='idle',job_error='' WHERE id=?",
-      ).run(article.id);
-    } catch (error) {
-      db.prepare(
-        "UPDATE articles SET job_state='error',job_error=? WHERE id=?",
-      ).run(
-        error instanceof AppError
-          ? error.message
-          : "Translation was interrupted. Completed blocks have been saved.",
-        article.id,
-      );
-    } finally {
-      cancelled.delete(article.id);
-    }
-  }
   app.post("/api/articles/:id/translate", (req, res) => {
-    const article = findArticle(String(req.params.id));
-    if (!aiConfig().model)
-      throw new AppError(503, "Select a model in Settings.");
-    if (store.articles().some((a) => a.job_state === "running"))
-      throw new AppError(
-        409,
-        "Another article is being translated. Wait for it to finish.",
-      );
-    if (
-      article.blocks.some(
-        (b) => !b.ru && b.kind !== "figure" && b.text.length > 12_000,
-      )
-    )
-      throw new AppError(
-        422,
-        "A block exceeds 12,000 characters. Split it before translation.",
-      );
-    db.prepare(
-      "UPDATE articles SET job_state='running',job_error='' WHERE id=?",
-    ).run(article.id);
-    void translate(article);
-    res.status(202).json(store.article(article.id));
+    res.status(202).json(library.startTranslation(String(req.params.id)));
   });
   app.post("/api/articles/:id/cancel", (req, res) => {
-    const a = findArticle(String(req.params.id));
-    if (a.job_state === "running") cancelled.add(a.id);
-    res.json({ ok: true });
+    res.json(library.cancelTranslation(String(req.params.id)));
   });
   app.post(
     "/api/words/suggest",
     rateLimit({ windowMs: 60_000, limit: 20 }),
     async (req, res) => {
-      const input = z
-        .object({
-          term: z.string().trim().min(1).max(160),
-          context: z.string().max(50_000).default(""),
-        })
-        .parse(req.body);
-      const result = await completeJSON(
-        aiConfig(),
-        'You are an English-Russian lexicographer. Given a selected word or expression and its sentence, return {"lemma":"canonical English base form","translation":"concise Russian meaning in this context"}. Use infinitive without to for verbs, singular for nouns. For phrases normalize inflected verbs but keep the whole idiom. Do not return example sentences or instructions.',
-        input,
-        wordSchema,
-      );
-      const existing = db
-        .prepare("SELECT id,lemma FROM cards WHERE normalized=?")
-        .get(normalizeLemma(result.lemma));
-      res.json({ ...result, existing: existing || null });
+      res.json(await library.suggestWord(req.body));
     },
   );
   app.get("/api/cards", (_req, res) => res.json(store.cards()));
   app.post("/api/cards", (req, res) => {
-    const input = cardInput.parse(req.body);
-    if (input.article_id) findArticle(input.article_id);
-    const normalized = normalizeLemma(input.lemma);
-    if (db.prepare("SELECT id FROM cards WHERE normalized=?").get(normalized))
-      throw new AppError(409, "This word or phrase has already been added.");
-    const id = randomUUID();
-    const now = new Date().toISOString();
-    store.transaction(() => {
-      db.prepare(
-        "INSERT INTO cards(id,article_id,block_id,lemma,normalized,source_form,translation,context,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-      ).run(
-        id,
-        input.article_id,
-        input.block_id,
-        input.lemma.normalize("NFKC").replace(/\s+/g, " ").trim(),
-        normalized,
-        input.source_form,
-        input.translation,
-        input.context,
-        input.notes,
-        now,
-      );
-      for (const direction of ["en-ru", "ru-en"])
-        db.prepare(
-          "INSERT INTO schedules(card_id,direction,due_at) VALUES(?,?,?)",
-        ).run(id, direction, now);
-    });
-    res.status(201).json(store.cards().find((c) => c.id === id));
+    res.status(201).json(library.createCard(req.body));
   });
   app.patch("/api/cards/:id", (req, res) => {
-    const id = idSchema.parse(req.params.id);
-    const existing = store.cards().find((c) => c.id === id);
-    if (!existing) throw new AppError(404, "Card not found.");
-    const input = cardInput.parse({ ...existing, ...req.body });
-    if (input.article_id) findArticle(input.article_id);
-    const normalized = normalizeLemma(input.lemma);
-    if (
-      db
-        .prepare("SELECT id FROM cards WHERE normalized=? AND id<>?")
-        .get(normalized, id)
-    )
-      throw new AppError(409, "This word or phrase has already been added.");
-    db.prepare(
-      "UPDATE cards SET lemma=?,normalized=?,translation=?,notes=? WHERE id=?",
-    ).run(
-      input.lemma.normalize("NFKC").replace(/\s+/g, " ").trim(),
-      normalized,
-      input.translation,
-      input.notes,
-      id,
-    );
-    res.json(store.cards().find((c) => c.id === id));
+    res.json(library.updateCard(String(req.params.id), req.body));
   });
   app.delete("/api/cards/:id", (req, res) => {
-    db.prepare("DELETE FROM cards WHERE id=?").run(
-      idSchema.parse(req.params.id),
-    );
-    res.json({ ok: true });
+    res.json(library.deleteCard(String(req.params.id)));
   });
   app.get("/api/reviews", (req, res) => {
-    const direction = z
-      .enum(["en-ru", "ru-en", "all"])
-      .parse(req.query.direction || "all");
-    const now = new Date().toISOString();
-    const result = store
-      .cards()
-      .flatMap((c) =>
-        c.schedules
-          .filter(
-            (s) =>
-              s.due_at <= now &&
-              (direction === "all" || s.direction === direction),
-          )
-          .map((s) => ({ ...c, direction: s.direction, due_at: s.due_at })),
-      );
-    res.json(result.sort((a, b) => a.due_at.localeCompare(b.due_at)));
+    res.json(library.listReviews(req.query.direction));
   });
   app.post("/api/cards/:id/review", (req, res) => {
-    const id = idSchema.parse(req.params.id);
-    const input = z
-      .object({
-        direction: z.enum(["en-ru", "ru-en"]),
-        rating: z.enum(["again", "hard", "good", "easy"]),
-        expected_due_at: z.string().datetime(),
-      })
-      .parse(req.body);
-    const previous = db
-      .prepare(
-        "SELECT direction,due_at,interval_days,ease,reps,lapses FROM schedules WHERE card_id=? AND direction=?",
-      )
-      .get(id, input.direction) as Schedule | undefined;
-    if (!previous) throw new AppError(404, "Card not found.");
-    if (previous.due_at !== input.expected_due_at)
-      throw new AppError(
-        409,
-        "This review was already saved on another screen. Refresh the queue.",
-      );
-    const next = scheduleReview(previous, input.rating);
-    store.transaction(() => {
-      db.prepare(
-        "UPDATE schedules SET due_at=?,interval_days=?,ease=?,reps=?,lapses=? WHERE card_id=? AND direction=?",
-      ).run(
-        next.due_at,
-        next.interval_days,
-        next.ease,
-        next.reps,
-        next.lapses,
-        id,
-        input.direction,
-      );
-      db.prepare(
-        "INSERT INTO reviews(card_id,direction,rating,reviewed_at) VALUES(?,?,?,?)",
-      ).run(id, input.direction, input.rating, new Date().toISOString());
-    });
-    res.json(next);
+    res.json(library.reviewCard(String(req.params.id), req.body));
   });
   app.get("/api/stats", (_req, res) => {
-    const cards = store.cards();
-    const now = new Date();
-    res.json({
-      articles: store.articles().length,
-      words: cards.length,
-      due: cards
-        .flatMap((c) => c.schedules)
-        .filter((s) => s.due_at <= now.toISOString()).length,
-      reviews_today: (
-        db
-          .prepare("SELECT count(*) AS count FROM reviews WHERE reviewed_at>=?")
-          .get(new Date(now.getTime() - 86_400_000).toISOString()) as any
-      ).count,
-    });
+    res.json(library.stats());
   });
   app.get("/api/models", async (_req, res) =>
     res.json({ models: await listModels(aiConfig()) }),

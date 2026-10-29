@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+data/
+artifacts/
+coverage/
+test-results/
+playwright-report/
+.npm-cache/
+.cache/
+.env
+.env.*
+package-lock.json
+LICENSE
+NOTICE

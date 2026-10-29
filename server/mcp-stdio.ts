@@ -32,11 +32,20 @@ async function request(path: string, body?: unknown) {
   if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
   return result;
 }
+const status = (await request("/status")) as { scopes?: string[] };
 const server = createAgentMcp({
+  management: {
+    scopes: status.scopes || ["articles:import"],
+    execute: (name, input) =>
+      request(`/actions/${encodeURIComponent(name)}`, input),
+  },
   importArticle: (input) => request("/articles", input),
   getArticle: (id) => request(`/articles/${encodeURIComponent(id)}`),
 });
-if (process.env.PAPERWORD_IMPORT_DIR) {
+if (
+  process.env.PAPERWORD_IMPORT_DIR &&
+  (status.scopes || ["articles:import"]).includes("articles:import")
+) {
   const root = await realpath(resolve(process.env.PAPERWORD_IMPORT_DIR));
   server.registerTool(
     "upload_article_file",

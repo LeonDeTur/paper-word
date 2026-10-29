@@ -49,7 +49,7 @@ React and TypeScript, Node.js 24 with Express, SQLite. A calm reading interface 
 - AC-008. Different case or whitespace in the same base form cannot create another entry. Validation: API returns 409; the browser disables saving when an existing form is found.
 - AC-009. Production requires a password and HTTPS origin. Sign-out and password changes revoke sessions. Validation: integration tests.
 
-At this milestone, 22 local server tests passed, covering HTTP API, OAuth, remote MCP with the official SDK client and directory-restricted local stdio MCP. TypeScript/Vite build and browser flows were checked. Actual imports preserve 166 Russian blocks for Spatial-RAG and 39 for GeoNatureAgent, with unchanged originals. Screenshots and observations are in `artifacts/qa`. Linux deployment, a physical phone and a real model server require target-environment validation.
+At this milestone, 29 local server tests passed, covering HTTP API, ChatGPT/Claude OAuth, remote MCP with the official SDK client, library/review management, legacy-token migration and directory-restricted local stdio MCP. TypeScript/Vite build and browser flows were checked. Actual imports preserve 166 Russian blocks for Spatial-RAG and 39 for GeoNatureAgent, with unchanged originals. Screenshots and observations are in `artifacts/qa`. Linux deployment, a physical phone and a real model server require target-environment validation.
 
 ## Applied skills
 
@@ -58,11 +58,11 @@ At this milestone, 22 local server tests passed, covering HTTP API, OAuth, remot
 - `ecc:frontend-design-direction`: reading/practice interface, mobile adaptation and state validation.
 - `ecc:security-review`: upload handling, private-data access and credential storage.
 - `ecc:react-patterns`: components, local state, error handling and native forms.
-- `ecc:mcp-server-patterns`: remote Streamable HTTP and local stdio MCP with shared import and receipt tools.
+- `ecc:mcp-server-patterns`: remote Streamable HTTP and local stdio MCP with shared import and library, translation, card and review management tools.
 
 ## Subsequent refinements
 
-At the user's request, HTTP API and MCP support agents through separate revocable tokens and idempotent import. Tokens permit only uploads and receipt checks, without vocabulary or Settings access. Token management lives in Settings. Connection details: `docs/agent-integration.md`.
+At the user's request, HTTP API and MCP now support library search/reading, translation editing, cards and reviews. Permissions are selected at token creation and OAuth consent. Existing tokens remain import-only. Deletion requires separate `data:delete`, disabled by default, and the corresponding write scope. Server settings and secrets remain inaccessible. The user wants to evaluate both website and ChatGPT/Claude workflows. Interactive MCP Apps are a separate next stage. Connection details: `docs/agent-integration.md`.
 
 The dark theme follows the actual Spatial-RAG file: #000000 background, white text and gray elements. The light theme keeps its green accent.
 

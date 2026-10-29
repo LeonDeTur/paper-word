@@ -64,7 +64,7 @@ export function CardDialog({
     return () => {
       active = false;
     };
-  }, []);
+  }, [draft.term, draft.context, draft.edit, aiConfigured]);
   const normalize = (s: string) =>
     s
       .normalize("NFKC")
