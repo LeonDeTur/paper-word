@@ -6,6 +6,7 @@ Changes follow SemVer. Dates indicate release dates.
 
 ### Added
 
+- English-only project instructions, interface, documentation and release notes; Cyrillic guards for staged files, commit messages and CI pull request metadata. Multilingual user data and translated-article tests remain supported.
 - GitHub Actions: quality checks, unit/integration tests on Linux and Windows, Chromium/Axe, coverage and Docker smoke tests; separate CodeQL, dependency auditing and Dependabot.
 - Release PR from `chore/release`: versions and English changelog sections from Conventional Commits, GitHub Release after successful CI, runtime archive and SHA-256 without personal data.
 - Local setup and validation commands, Git hooks, Commitlint, Oxlint, consistent Node/editor/line endings and a development guide.

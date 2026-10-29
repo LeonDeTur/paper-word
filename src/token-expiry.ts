@@ -39,10 +39,12 @@ export function parseTokenExpiryDate(
   value: string,
   now = new Date(),
 ): TokenExpiryInput {
-  const text = value.trim().replace(/^\u0434\u043e\s+/i, "");
+  const text = value.trim().replace(/^(?:until|\u0434\u043e)\s+/i, "");
   const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[ Tt](\d{2}):(\d{2}))?$/.exec(text);
-  const ru = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?$/.exec(text);
-  const match = iso || ru;
+  const dotted = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{2}):(\d{2}))?$/.exec(
+    text,
+  );
+  const match = iso || dotted;
   if (!match)
     throw new Error(
       "Enter YYYY-MM-DD or DD.MM.YYYY, optionally followed by HH:MM.",
@@ -76,23 +78,23 @@ export function parseTokenExpiryCommand(
   const text = value
     .trim()
     .toLowerCase()
-    .replace(/^\u0447\u0435\u0440\u0435\u0437\s+/, "");
+    .replace(/^(?:in|\u0447\u0435\u0440\u0435\u0437)\s+/, "");
   const duration =
-    /^(\d+)\s*(m|min|\u043c\u0438\u043d|\u043c\u0438\u043d\u0443\u0442\u0430|\u043c\u0438\u043d\u0443\u0442\u044b|\u043c\u0438\u043d\u0443\u0442|h|\u0447|\u0447\u0430\u0441|\u0447\u0430\u0441\u0430|\u0447\u0430\u0441\u043e\u0432|d|\u0434|\u0434\u0435\u043d\u044c|\u0434\u043d\u044f|\u0434\u043d\u0435\u0439|w|\u043d|\u043d\u0435\u0434|\u043d\u0435\u0434\u0435\u043b\u044f|\u043d\u0435\u0434\u0435\u043b\u0438|\u043d\u0435\u0434\u0435\u043b\u044c)$/.exec(
+    /^(\d+)\s*(m|min|minutes?|\u043c\u0438\u043d|\u043c\u0438\u043d\u0443\u0442\u0430|\u043c\u0438\u043d\u0443\u0442\u044b|\u043c\u0438\u043d\u0443\u0442|h|hours?|\u0447|\u0447\u0430\u0441|\u0447\u0430\u0441\u0430|\u0447\u0430\u0441\u043e\u0432|d|days?|\u0434|\u0434\u0435\u043d\u044c|\u0434\u043d\u044f|\u0434\u043d\u0435\u0439|w|weeks?|\u043d|\u043d\u0435\u0434|\u043d\u0435\u0434\u0435\u043b\u044f|\u043d\u0435\u0434\u0435\u043b\u0438|\u043d\u0435\u0434\u0435\u043b\u044c)$/.exec(
       text,
     );
   if (duration) {
     const unit = duration[2];
     const multiplier =
-      /^(m|min|\u043c\u0438\u043d|\u043c\u0438\u043d\u0443\u0442\u0430|\u043c\u0438\u043d\u0443\u0442\u044b|\u043c\u0438\u043d\u0443\u0442)$/.test(
+      /^(m|min|minutes?|\u043c\u0438\u043d|\u043c\u0438\u043d\u0443\u0442\u0430|\u043c\u0438\u043d\u0443\u0442\u044b|\u043c\u0438\u043d\u0443\u0442)$/.test(
         unit,
       )
         ? 60
-        : /^(h|\u0447|\u0447\u0430\u0441|\u0447\u0430\u0441\u0430|\u0447\u0430\u0441\u043e\u0432)$/.test(
+        : /^(h|hours?|\u0447|\u0447\u0430\u0441|\u0447\u0430\u0441\u0430|\u0447\u0430\u0441\u043e\u0432)$/.test(
               unit,
             )
           ? 3600
-          : /^(d|\u0434|\u0434\u0435\u043d\u044c|\u0434\u043d\u044f|\u0434\u043d\u0435\u0439)$/.test(
+          : /^(d|days?|\u0434|\u0434\u0435\u043d\u044c|\u0434\u043d\u044f|\u0434\u043d\u0435\u0439)$/.test(
                 unit,
               )
             ? 86400
@@ -102,7 +104,11 @@ export function parseTokenExpiryCommand(
     return result;
   }
   if (!text) throw new Error("Enter a duration or expiration date.");
-  if (/^\d{4}-\d{2}-\d{2}|^\d{2}\.\d{2}\.\d{4}|^\u0434\u043e\s/.test(text))
+  if (
+    /^\d{4}-\d{2}-\d{2}|^\d{2}\.\d{2}\.\d{4}|^(?:until|\u0434\u043e)\s/.test(
+      text,
+    )
+  )
     return parseTokenExpiryDate(text, now);
   throw new Error("Examples: 30d, 12h, 2w, 30 days or 2027-12-31 18:00.");
 }
