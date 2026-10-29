@@ -7,9 +7,16 @@ build
 .env.*
 .git
 .npm-cache
+.cache
+paperword-data*.tar.gz
+paperword-????-??-??.json
 test-results
 playwright-report
 coverage
+release-assets
+.github
+.githooks
+.vscode
 *.log
 *.sqlite
 *.sqlite-*

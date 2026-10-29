@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   RotateCcw,
@@ -53,36 +53,39 @@ export function Study({
       });
     return () => controller.abort();
   }, [direction, session]);
-  async function rate(rating: (typeof ratings)[number][0]) {
-    if (!current || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const next = await api<Schedule>(`/cards/${current.id}/review`, {
-        method: "POST",
-        body: json({
-          rating,
-          direction: current.direction,
-          expected_due_at: current.due_at,
-        }),
-      });
-      setNextDue(
-        new Date(next.due_at).toLocaleString("en-GB", {
-          day: "numeric",
-          month: "long",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      );
-      setIndex((i) => i + 1);
-      setRevealed(false);
-      onChanged();
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const rate = useCallback(
+    async (rating: (typeof ratings)[number][0]) => {
+      if (!current || busy) return;
+      setBusy(true);
+      setError("");
+      try {
+        const next = await api<Schedule>(`/cards/${current.id}/review`, {
+          method: "POST",
+          body: json({
+            rating,
+            direction: current.direction,
+            expected_due_at: current.due_at,
+          }),
+        });
+        setNextDue(
+          new Date(next.due_at).toLocaleString("en-GB", {
+            day: "numeric",
+            month: "long",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        );
+        setIndex((i) => i + 1);
+        setRevealed(false);
+        onChanged();
+      } catch (error) {
+        setError((error as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [current, busy, onChanged],
+  );
   useEffect(() => {
     function keydown(e: KeyboardEvent) {
       if (
@@ -105,7 +108,7 @@ export function Study({
     }
     document.addEventListener("keydown", keydown);
     return () => document.removeEventListener("keydown", keydown);
-  }, [current, busy, revealed]);
+  }, [current, busy, revealed, rate]);
   function intervalLabel(
     rating: (typeof ratings)[number][0],
     fallback: string,

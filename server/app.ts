@@ -374,7 +374,7 @@ export function createApp(options: AppOptions) {
       throw new AppError(404, "The original file was not saved.");
     res.set("Content-Type", "application/octet-stream");
     res
-      .attachment(row.original_name.replace(/[^\w.\-]/g, "_") || "article.html")
+      .attachment(row.original_name.replace(/[^\w.-]/g, "_") || "article.html")
       .send(Buffer.from(row.original));
   });
   app.delete("/api/articles/:id", (req, res) => {

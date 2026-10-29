@@ -24,10 +24,19 @@ Requires Node.js **24.14 or newer** with `node:sqlite`.
 
 ```powershell
 npm ci
+npm run setup
 npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173). The API runs on `127.0.0.1:3001`. Without `APP_PASSWORD`, the server always binds to loopback. The initial library is empty; test fixtures are not inserted into user data.
+
+`setup` preserves an existing `.env` and enables Git hooks for formatting, types, private-file protection and Conventional Commits. Install Chromium for browser tests: `npx playwright install chromium`. Commands and Windows/Linux instructions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## CI and releases
+
+GitHub Actions checks formatting, Oxlint, TypeScript, builds, unit/integration tests on Linux and Windows, desktop/mobile Playwright scenarios with accessibility checks, and production Docker builds. Coverage, HTML/JUnit/trace and screenshots are available as CI artifacts. CodeQL and dependency auditing run separately; Dependabot proposes updates without automatic merging.
+
+Conventional Commits determine versions and changelog entries. After checks pass on `main`, the bot prepares a Release PR from `chore/release`. After that PR is merged and checks pass again, a GitHub Release with a runtime archive and SHA-256 is published automatically. Nothing is deployed to npm or a VPS automatically. [Workflow and setup](docs/ci.md), [SemVer](docs/versioning.md).
 
 To preview the production build:
 
@@ -142,7 +151,7 @@ Format code with `npm run format`.
 
 Supports OAuth + PKCE for ChatGPT and Claude, prepared ChatGPT files through `import_chatgpt_file`, HTTP API and stdio. MCP provides library search and reading, article and translation editing, background translation, card creation/editing, review queues, ratings and statistics. Permissions are selected in Settings and OAuth; deletion requires a separate permission and is disabled by default. Existing tokens retain import-only access. Agents cannot access the password or model key. [Agent setup and tools](docs/agent-integration.md), [existing-task instructions](docs/chatgpt-task-instructions.md). Cloud connections require deployment, owner OAuth approval and validation for each client. Interactive MCP Apps are not implemented yet.
 
-The current release is **0.2.0**. See the [changelog](CHANGELOG.md) and [SemVer workflow](docs/versioning.md). The interface and MCP read their version from `package.json`.
+The current version is in `package.json` and [GitHub Releases](https://github.com/LeonDeTur/paper-word/releases). See the [changelog](CHANGELOG.md) and [SemVer workflow](docs/versioning.md). The interface and MCP read their version from `package.json`.
 
 Before publication or environment setup, read [secrets and personal data](SECURITY.md). Replace repository example addresses with your own; keep real settings outside Git.
 

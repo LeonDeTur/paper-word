@@ -6,6 +6,9 @@ Changes follow SemVer. Dates indicate release dates.
 
 ### Added
 
+- GitHub Actions: quality checks, unit/integration tests on Linux and Windows, Chromium/Axe, coverage and Docker smoke tests; separate CodeQL, dependency auditing and Dependabot.
+- Release PR from `chore/release`: versions and English changelog sections from Conventional Commits, GitHub Release after successful CI, runtime archive and SHA-256 without personal data.
+- Local setup and validation commands, Git hooks, Commitlint, Oxlint, consistent Node/editor/line endings and a development guide.
 - MCP and HTTP API for library search and reading, article and translation editing, background translation, cards, reviews and statistics. The website and MCP share an operations layer.
 - Separate agent permissions, selectable scopes for tokens and OAuth; deletion requires additional `data:delete` and is disabled by default. Existing tokens migrate with import-only access.
 - OAuth with PKCE for Claude, scope narrowing on refresh, identical management tools over remote MCP and stdio; translation writes reject stale edits.
