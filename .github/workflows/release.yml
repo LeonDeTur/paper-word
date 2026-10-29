@@ -15,9 +15,15 @@ concurrency:
 jobs:
   checks:
     uses: ./.github/workflows/ci.yml
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
   release:
     if: github.ref == 'refs/heads/main'
-    needs: checks
+    needs: [checks, security]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
