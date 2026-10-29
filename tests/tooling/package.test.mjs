@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 const script = resolve("scripts/package-release.mjs");
 test("runtime archive includes only distributable files, has a correct checksum and refuses private data", () => {
@@ -39,7 +39,8 @@ test("runtime archive includes only distributable files, has a correct checksum 
     });
     assert.equal(result.status, 0, result.stderr);
     const archive = join(cwd, "release-assets", "paperword-v0.3.0.tar.gz");
-    const entries = execFileSync("tar", ["-tzf", archive], {
+    const entries = execFileSync("tar", ["-tzf", basename(archive)], {
+      cwd: dirname(archive),
       encoding: "utf8",
     });
     assert.match(entries, /build\/server\.mjs/);

@@ -52,7 +52,8 @@ try {
   }
   const filename = `paperword-v${version}.tar.gz`,
     archive = join(output, filename);
-  execFileSync("tar", ["-czf", archive, "-C", stage, "."], {
+  execFileSync("tar", ["-czf", `../${filename}`, "."], {
+    cwd: stage,
     stdio: "inherit",
   });
   const hash = createHash("sha256").update(readFileSync(archive)).digest("hex");
