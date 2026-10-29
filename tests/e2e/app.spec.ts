@@ -139,6 +139,11 @@ test("desktop: import → read → lemma → no duplicate → both review direct
   await expect(
     page.getByRole("heading", { name: /Learning from scientific/ }),
   ).toBeVisible();
+  // This fixture scrolls when the reader restores its position after navigation.
+  // Wait for that restoration, which intentionally dismisses any open word hint.
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(0);
   const observed = page.locator(".word").filter({ hasText: /^observed$/ });
   let suggestionRequests = 0;
   page.on("request", (req) => {
