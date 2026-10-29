@@ -139,7 +139,7 @@ jobs:
           docker run -d --name paperword-ci -p 127.0.0.1:3015:3001 \
             -e APP_PASSWORD=ci-only-fixture-password \
             -e APP_ORIGIN=https://paperword.example.com paperword:ci
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:3015/api/config > /tmp/paperword-config.json; then break; fi
             sleep 1
           done
