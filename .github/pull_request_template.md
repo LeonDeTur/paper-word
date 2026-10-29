@@ -8,6 +8,7 @@ Describe the problem and the resulting behavior.
 - [ ] `npm run test:e2e` for interface changes
 - [ ] Features or fixes have appropriate test coverage
 - [ ] No `.env`, tokens, databases or personal articles are included
+- [ ] Project text and comments are in English; tracked files contain no Cyrillic
 
 ## Compatibility
 
