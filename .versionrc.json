@@ -1,0 +1,16 @@
+{
+  "header": "# Changelog\n\nИзменения формируются из Conventional Commits. Версии следуют SemVer.\n",
+  "skip": { "commit": true, "tag": true },
+  "types": [
+    { "type": "feat", "section": "Возможности" },
+    { "type": "fix", "section": "Исправления" },
+    { "type": "perf", "section": "Производительность" },
+    { "type": "refactor", "section": "Изменения", "hidden": false },
+    { "type": "docs", "section": "Документация", "hidden": false },
+    { "type": "build", "section": "Сборка", "hidden": false },
+    { "type": "ci", "section": "CI", "hidden": false },
+    { "type": "test", "section": "Тесты", "hidden": false },
+    { "type": "chore", "section": "Обслуживание", "hidden": false },
+    { "type": "revert", "section": "Отменённые изменения", "hidden": false }
+  ]
+}

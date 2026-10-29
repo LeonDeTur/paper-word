@@ -12,6 +12,8 @@ data/
 .cache/
 artifacts/
 coverage/
+release-assets/
+*.tsbuildinfo
 /.idea
 *.log
 *.sqlite
@@ -19,6 +21,8 @@ coverage/
 *.db
 *.db-*
 *.bundle
+paperword-data*.tar.gz
+/paperword-????-??-??.json
 *.pem
 *.key
 *.p12

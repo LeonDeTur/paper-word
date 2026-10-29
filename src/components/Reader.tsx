@@ -111,6 +111,8 @@ export function Reader({
       120,
     );
     return () => clearTimeout(timer);
+    // Only restore on article navigation; progress updates must not jump the viewport.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [article.id]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -359,7 +361,7 @@ export function Reader({
                   ) : (
                     <p>
                       {block.text
-                        .split(/(\p{L}[\p{L}\p{M}'’\-]*)/u)
+                        .split(/(\p{L}[\p{L}\p{M}'’-]*)/u)
                         .map((part, index) =>
                           /\p{L}/u.test(part) ? (
                             <button
