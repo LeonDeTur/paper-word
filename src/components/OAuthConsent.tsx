@@ -75,8 +75,8 @@ export function OAuthConsent() {
               ))}
             </fieldset>
             <p className="hint">
-              Deletion is disabled by default. Your password and model keys not
-              granted.
+              Deletion is disabled by default. Your password and model keys are
+              never shared.
             </p>
             <p className="hint">
               After approval you will return to{" "}

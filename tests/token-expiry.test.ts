@@ -16,6 +16,10 @@ test("expiry commands support durations and strict local calendar dates", () => 
     ["12h", 43200],
     ["2w", 1209600],
     ["15m", 900],
+    ["in 30 days", 2592000],
+    ["12 hours", 43200],
+    ["2 weeks", 1209600],
+    ["15 minutes", 900],
     ["\u0447\u0435\u0440\u0435\u0437 30 \u0434\u043d\u0435\u0439", 2592000],
     ["400\u0434", 34560000],
   ] as const) {
@@ -37,6 +41,12 @@ test("expiry commands support durations and strict local calendar dates", () => 
   assert.equal(dateOnly.getHours(), 23);
   assert.equal(dateOnly.getMinutes(), 59);
   assert.equal(dateOnly.getSeconds(), 59);
+  assert.equal(
+    localDateTime(
+      resolveTokenExpiry(parseTokenExpiryCommand("until 2027-12-31", now), now),
+    ),
+    localDateTime(dateOnly),
+  );
   const exact = resolveTokenExpiry(
     parseTokenExpiryCommand("2028-02-29 18:30", now),
     now,

@@ -1,4 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { containsCyrillic } from "./repository-policy.mjs";
+if (containsCyrillic([process.env.PR_TITLE, process.env.PR_BODY].join("\n")))
+  throw new Error(
+    "Write PR titles and descriptions in English without Cyrillic.",
+  );
 if (process.env.PR_TITLE) {
   const result = spawnSync(
     process.execPath,

@@ -112,6 +112,8 @@ async function noOverflow(page: Page) {
 test("desktop: import → read → lemma → no duplicate → both review directions; keyboard and accessibility", async ({
   page,
 }) => {
+  // Smooth focus scrolling intentionally dismisses hints; test focus without motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 900 });
   const runtimeErrors: string[] = [];
   page.on("pageerror", (e) => runtimeErrors.push(e.message));
@@ -129,15 +131,19 @@ test("desktop: import → read → lemma → no duplicate → both review direct
   await page
     .getByRole("button", { name: "Add to library", exact: true })
     .click();
-  await expect(
-    page.getByRole("button", { name: /Learning from scientific articles/ }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: /Learning from scientific articles/ })
-    .click();
+  const imported = page
+    .locator(".article-title")
+    .filter({ hasText: /Learning from scientific articles/ });
+  await expect(imported).toBeVisible();
+  await imported.click();
   await expect(
     page.getByRole("heading", { name: /Learning from scientific/ }),
   ).toBeVisible();
+  // This fixture scrolls when the reader restores its position after navigation.
+  // Wait for that restoration, which intentionally dismisses any open word hint.
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(0);
   const observed = page.locator(".word").filter({ hasText: /^observed$/ });
   let suggestionRequests = 0;
   page.on("request", (req) => {
